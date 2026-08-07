@@ -2,6 +2,21 @@
 
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [2.3.0] — 2026-08-07
+
+### Ajouté
+- Export **Le Médaillier** : reformate les données aux champs de la fiche pièce
+  (métal, titre, poids, diamètre, tranche, axe de frappe, monnaie, référence…)
+- Analyse de `composition` → **métal normalisé + titre en millièmes**
+  (gère « Or (.900) », « Argent 900‰ », « 22 carats », « Bimétallique… »)
+- Option **tirage & atelier** à l'enrichissement, via `/types/{id}/issues`
+  (coût doublé, annoncé dans l'estimation)
+- Alerte au moment de l'export sur le nombre de pièces sans métal identifiable
+
+### Corrigé
+- Le métal n'est plus laissé au défaut du formulaire : il est déduit de la
+  composition réelle renvoyée par l'API
+
 ## [2.2.0] — 2026-08-04
 
 ### Ajouté

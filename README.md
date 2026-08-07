@@ -134,10 +134,32 @@ L'option *exclure les types courants* écarte les motifs de circulation
 
 ### 5. Exporter
 
-- **JSON** — format natif, ré-importable à l'étape 1 (registre inclus)
+- **Le Médaillier** — reformate les données aux champs d'une fiche pièce
+- **JSON natif** — ré-importable à l'étape 1 (registre inclus)
 - **CSV** — colonnes à plat, séparateur `;`, BOM UTF-8 (Excel-compatible)
 
 L'export ne consomme aucune requête.
+
+#### Correspondance des champs
+
+| Champ fiche | Source API | Remarque |
+|---|---|---|
+| Nom, Pays, Année | `title`, `issuer.name`, `min_year` | présent dès l'index |
+| Valeur faciale | `value.text` | détail requis |
+| Monnaie | `value.currency.name` | détail requis |
+| Catégorie / Nature | `type` | ex. « Pièce commémorative de circulation » |
+| Métal, Titre ‰ | `composition.text` | **déduit par analyse** |
+| Poids, Diamètre, Épaisseur | `weight`, `size`, `thickness` | détail requis |
+| Axe de frappe | `orientation` | `medal` → médaille, `coin` → monnaie |
+| Tranche | `edge.description` | détail requis |
+| Référence KM# | `references` | détail requis |
+| Tirage, Atelier | `issues[].mintage`, `mint_letter` | option « tirage & atelier » |
+| Grade, emplacement, prix, cote | — | données personnelles, hors catalogue |
+
+L'analyse de composition reconnaît les formes courantes (`Or (.900)`,
+`Argent 900‰`, `22 carats`, `Bimétallique : …`) et renseigne le métal et le
+titre plutôt que de laisser la valeur par défaut du formulaire. Les
+compositions inhabituelles sont signalées à l'export pour reprise manuelle.
 
 ---
 
