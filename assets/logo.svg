@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Extracteur Numista">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b232f"/>
+      <stop offset="1" stop-color="#101620"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2c47c"/>
+      <stop offset="0.5" stop-color="#e0a446"/>
+      <stop offset="1" stop-color="#b87d28"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7d9a0"/>
+      <stop offset="1" stop-color="#a86f1e"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- anneau extérieur de la pièce -->
+  <circle cx="256" cy="238" r="132" fill="url(#rim)"/>
+  <circle cx="256" cy="238" r="119" fill="url(#gold)"/>
+  <circle cx="256" cy="238" r="119" fill="none" stroke="#8a5f18" stroke-width="2" opacity="0.5"/>
+
+  <!-- cannelures du listel -->
+  <g stroke="#8a5f18" stroke-width="3" opacity="0.45">
+    <line x1="256" y1="112" x2="256" y2="126"/>
+    <line x1="345" y1="149" x2="335" y2="159"/>
+    <line x1="382" y1="238" x2="368" y2="238"/>
+    <line x1="345" y1="327" x2="335" y2="317"/>
+    <line x1="256" y1="364" x2="256" y2="350"/>
+    <line x1="167" y1="327" x2="177" y2="317"/>
+    <line x1="130" y1="238" x2="144" y2="238"/>
+    <line x1="167" y1="149" x2="177" y2="159"/>
+  </g>
+
+  <!-- cercle intérieur -->
+  <circle cx="256" cy="238" r="92" fill="none" stroke="#8a5f18" stroke-width="4" opacity="0.55"/>
+
+  <!-- étoiles européennes -->
+  <g fill="#7a5312" opacity="0.5">
+    <circle cx="256" cy="160" r="6"/>
+    <circle cx="311" cy="183" r="6"/>
+    <circle cx="334" cy="238" r="6"/>
+    <circle cx="311" cy="293" r="6"/>
+    <circle cx="256" cy="316" r="6"/>
+    <circle cx="201" cy="293" r="6"/>
+    <circle cx="178" cy="238" r="6"/>
+    <circle cx="201" cy="183" r="6"/>
+  </g>
+
+  <!-- symbole euro -->
+  <g fill="none" stroke="#3b2708" stroke-width="16" stroke-linecap="round">
+    <path d="M296 194 a58 58 0 1 0 0 88"/>
+    <line x1="196" y1="224" x2="272" y2="224"/>
+    <line x1="196" y1="252" x2="272" y2="252"/>
+  </g>
+
+  <!-- flux de données : trois barres de progression -->
+  <g>
+    <rect x="132" y="404" width="248" height="14" rx="7" fill="#2a3646"/>
+    <rect x="132" y="404" width="186" height="14" rx="7" fill="url(#gold)"/>
+    <rect x="132" y="436" width="248" height="14" rx="7" fill="#2a3646"/>
+    <rect x="132" y="436" width="112" height="14" rx="7" fill="#4bbf7a"/>
+  </g>
+</svg>
