@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Numista — Extracteur API v2</title>
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<meta name="description" content="Extraction et consolidation du catalogue Numista via l'API officielle. Hors-ligne, fichier unique.">
+<meta name="theme-color" content="#141a24">
+<style>
+  :root{
+    --bg:#141a24; --panel:#1b232f; --panel-2:#222c3a; --line:#30404f;
+    --ink:#e8eef4; --ink-soft:#a0b1c1; --ink-faint:#6a7a8c;
+    --gold:#e0a446; --gold-soft:#f2c47c; --ok:#4bbf7a; --err:#e06a5a; --warn:#d8b24a; --blue:#5aa8e0;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5;font-size:15px;padding:24px 16px 70px}
+  .wrap{max-width:940px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:14px;padding-bottom:16px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+  header h1{font-size:21px;font-weight:650;margin:0;letter-spacing:.2px}
+  header .tag{font-family:var(--mono);font-size:11px;color:var(--gold);border:1px solid var(--gold);border-radius:4px;padding:2px 7px;text-transform:uppercase;letter-spacing:1px}
+  header .sub{color:var(--ink-faint);font-size:13px;margin-left:auto;font-family:var(--mono)}
+
+  .quota{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:14px 0 20px}
+  .quota .qbar{flex:1;height:9px;background:var(--bg);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .quota .qbar>span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--gold-soft));transition:width .3s}
+  .quota .qtxt{font-family:var(--mono);font-size:13px;color:var(--ink-soft);white-space:nowrap}
+  .quota .qtxt b{color:var(--gold-soft)}
+  .quota .qreset{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:18px}
+  .step h2{font-size:15px;margin:0 0 4px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .step h2 .num{font-family:var(--mono);font-size:12px;color:var(--bg);background:var(--gold);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .step h2 .num.opt{background:var(--panel-2);color:var(--gold-soft);border:1px solid var(--gold)}
+  .step .desc{color:var(--ink-faint);font-size:13px;margin:0 0 16px;padding-left:32px}
+  .step.locked{opacity:.5;pointer-events:none}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:5px;background:var(--panel-2);color:var(--ink-soft);border:1px solid var(--line)}
+  .badge.gold{color:var(--gold-soft);border-color:var(--gold)}
+  .badge.ok{color:var(--ok);border-color:var(--ok)}
+
+  label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-soft);margin-bottom:7px}
+  label .hint{display:block;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink-faint);font-size:12px;margin-top:3px}
+  input[type=text],input[type=password],input[type=number],select{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:11px 12px;font-family:var(--mono);font-size:14px;outline:none;transition:border-color .15s}
+  input:focus,select:focus{border-color:var(--gold)}
+  input::placeholder{color:var(--ink-faint)}
+  .field{margin-bottom:16px}
+  .row{display:flex;gap:14px;flex-wrap:wrap}
+  .row .field{flex:1;min-width:150px}
+
+  .btn{font-family:var(--sans);font-size:14px;font-weight:600;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;transition:filter .15s,opacity .15s}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-go{background:var(--gold);color:#241a08}
+  .btn-go:hover:not(:disabled){filter:brightness(1.08)}
+  .btn-stop{background:var(--err);color:#fff}
+  .btn-ghost{background:var(--panel-2);color:var(--ink);border:1px solid var(--line)}
+  .btn-ghost:hover:not(:disabled){background:var(--line)}
+  .btn-sm{padding:7px 13px;font-size:13px}
+  .actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+  .chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--ink-soft)}
+  .chk input{width:auto;accent-color:var(--gold)}
+
+  .importbox{border:1px dashed var(--line);border-radius:9px;padding:14px;margin-top:8px;background:var(--bg)}
+  .importbox .row2{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+
+  /* arbre */
+  .issuer-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .issuer-tools input[type=text]{flex:1;min-width:180px}
+  .selcount{font-family:var(--mono);font-size:12px;color:var(--gold-soft)}
+  .tree{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:4px}
+  .grp{border-bottom:1px solid rgba(48,64,79,.5)}
+  .grp:last-child{border-bottom:none}
+  .grp-head{display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer;user-select:none}
+  .grp-head:hover{background:var(--panel-2)}
+  .grp-head .chev{color:var(--ink-faint);font-size:11px;width:12px;transition:transform .15s}
+  .grp-head.open .chev{transform:rotate(90deg)}
+  .grp-head input{width:auto;accent-color:var(--gold)}
+  .grp-head .glabel{font-weight:600;font-size:14px}
+  .grp-head .gmeta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+  .grp-head .gmeta .gsel{color:var(--gold-soft)}
+  .grp-head .gmeta .gcache{color:var(--ok)}
+  .grp-body{display:none;padding:2px 0 8px 30px}
+  .grp-body.open{display:block}
+  .leaf{display:flex;align-items:center;gap:9px;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:13.5px}
+  .leaf:hover{background:var(--panel-2)}
+  .leaf input{width:auto;accent-color:var(--gold)}
+  .leaf.on{background:rgba(224,164,70,.10)}
+  .leaf .code{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+  .leaf .stt{font-family:var(--mono);font-size:10.5px;margin-left:auto;padding:2px 8px;border-radius:5px;border:1px solid;white-space:nowrap}
+  .leaf .stt.done{color:var(--ok);border-color:var(--ok)}
+  .leaf .stt.empty{color:var(--ink-faint);border-color:var(--line)}
+  .leaf .stt.todo{color:var(--gold-soft);border-color:var(--gold)}
+  #dashboard{display:none;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:11px 15px;margin-bottom:14px;font-family:var(--mono);font-size:13px;color:var(--ink-soft)}
+  #dashboard b{color:var(--gold-soft)}
+  #dashboard .d-done{color:var(--ok)}
+  #dashboard .d-todo{color:var(--gold-soft)}
+  #dashboard .d-empty{color:var(--ink-faint)}
+  .howto{background:rgba(90,168,224,.07);border:1px solid rgba(90,168,224,.35);border-radius:9px;padding:12px 15px;margin-bottom:14px;font-size:13px;line-height:1.6;color:var(--ink-soft)}
+  .howto b{color:var(--blue)}
+  .howto ol{margin:6px 0 0;padding-left:20px}
+  .howto li{margin:3px 0}
+  .modeswitch{display:flex;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:4px;margin-bottom:14px;flex-wrap:wrap}
+  .mode-btn{flex:1;min-width:120px;background:transparent;color:var(--ink-soft);border:none;border-radius:6px;padding:9px 12px;font-family:var(--sans);font-size:13.5px;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+  .mode-btn:hover{color:var(--ink)}
+  .mode-btn.active{background:var(--gold);color:#241a08}
+  .modepanel{margin-bottom:6px}
+  .modehint{color:var(--ink-faint);font-size:13px;margin:0 0 14px}
+  .currency-presets{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+  .diagbox{border:1px dashed var(--line);border-radius:9px;padding:13px 15px;margin-bottom:14px;background:var(--bg)}
+  .scopebox{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px 14px;margin-bottom:14px;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--ink-soft)}
+  .scopebox.ok{border-color:var(--ok)}
+  .scopebox.warn{border-color:var(--warn)}
+  .scopebox b{color:var(--ink)}
+  .cur-chip{background:var(--panel-2);color:var(--ink-soft);border:1px solid var(--line);border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer;transition:all .15s;font-family:var(--mono)}
+  .cur-chip:hover{border-color:var(--gold);color:var(--gold-soft)}
+  .cur-chip.on{background:var(--gold);color:#241a08;border-color:var(--gold)}
+
+  /* synthèse / tableau de bord */
+  .dash{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .dash .card{flex:1;min-width:150px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:12px 14px}
+  .dash .card .big{font-size:22px;font-weight:700;color:var(--gold-soft);font-family:var(--mono)}
+  .dash .card .lbl{font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  .keycountries{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:16px}
+  .keycountries h3{margin:0 0 4px;font-size:13px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.5px}
+  .keycountries .sub{font-size:12px;color:var(--ink-faint);margin:0 0 10px}
+  .kc-grid{display:flex;flex-wrap:wrap;gap:8px}
+  .kc{font-family:var(--mono);font-size:12.5px;padding:5px 11px;border-radius:6px;cursor:pointer;border:1px solid var(--line);user-select:none;transition:all .12s}
+  .kc.missing{background:rgba(224,164,70,.10);border-color:var(--gold);color:var(--gold-soft)}
+  .kc.missing:hover{background:rgba(224,164,70,.20)}
+  .kc.done{background:transparent;border-color:var(--line);color:var(--ink-faint)}
+  .kc .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .kc.missing .dot{background:var(--gold)}
+  .kc.done .dot{background:var(--ok)}
+  .flat .leaf{padding-left:10px}
+
+  .bar{height:10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:14px}
+  .bar>span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--gold-soft));transition:width .2s}
+  .stats{display:flex;gap:18px;margin-top:10px;font-family:var(--mono);font-size:13px;flex-wrap:wrap}
+  .stats b{font-weight:600}
+  .s-ok{color:var(--ok)} .s-err{color:var(--err)} .s-info{color:var(--ink-soft)} .s-eta{color:var(--gold-soft)}
+  .log{margin-top:12px;max-height:170px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:10px 12px;font-family:var(--mono);font-size:12.5px;display:none}
+  .log.on{display:block}
+  .log div{padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .log .l-ok{color:var(--ink-soft)} .log .l-err{color:var(--err)} .log .l-warn{color:var(--warn)}
+
+  .cachestat{display:flex;gap:20px;flex-wrap:wrap;font-family:var(--mono);font-size:13px;color:var(--ink-soft);margin-bottom:14px}
+  .cachestat b{color:var(--gold-soft)}
+  .note{font-size:12.5px;color:var(--ink-faint);line-height:1.6;border-left:2px solid var(--line);padding-left:12px;margin-top:14px}
+  .note code{color:var(--gold-soft);font-family:var(--mono)}
+  .note b{color:var(--ink-soft)}
+  .warnbox{background:rgba(224,106,90,.09);border:1px solid var(--err);border-radius:8px;padding:12px 14px;font-size:13px;color:var(--ink);margin-top:14px;display:none}
+  .warnbox.on{display:block}
+  .warnbox b{color:var(--err)}
+  a{color:var(--gold-soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Extracteur Numista</h1>
+    <span class="tag">API v3 · v2</span>
+    <span class="sub">Europe &amp; Japon &rarr; JSON / CSV</span>
+  </header>
+
+  <div class="quota">
+    <span class="qtxt">Quota du mois : <b id="qUsed">0</b> / <span id="qMax">2000</span> requêtes</span>
+    <div class="qbar"><span id="qFill"></span></div>
+    <span class="qreset" id="qReset"></span>
+  </div>
+
+  <!-- ÉTAPE 1 -->
+  <div class="step" id="step1">
+    <h2><span class="num">1</span> Configuration &amp; reprise</h2>
+    <p class="desc">Clé conservée uniquement dans ce navigateur. Vous pouvez aussi repartir d'un JSON déjà extrait : il est fusionné au cache, sans aucune requête.</p>
+    <div class="field">
+      <label>Clé API Numista<span class="hint">depuis en.numista.com/api/api_key.php</span></label>
+      <div style="display:flex;gap:10px">
+        <input type="password" id="apiKey" spellcheck="false" placeholder="votre clé…" autocomplete="off">
+        <button class="btn btn-ghost btn-sm" id="toggleKey" type="button">Afficher</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Langue</label><select id="lang"><option value="fr" selected>Français</option><option value="en">English</option></select></div>
+      <div class="field">
+        <label>Catégories</label>
+        <div style="display:flex;gap:16px;padding-top:8px">
+          <label class="chk"><input type="checkbox" id="catCoin" checked> Pièces</label>
+          <label class="chk"><input type="checkbox" id="catBank"> Billets</label>
+          <label class="chk"><input type="checkbox" id="catExo"> Exonumia</label>
+        </div>
+      </div>
+      <div class="field"><label>Budget mensuel</label><input type="number" id="budget" value="2000" min="1" step="100"></div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-go" id="saveConfig">Enregistrer &amp; tester la clé</button>
+      <span id="configStatus" class="badge" style="display:none"></span>
+    </div>
+
+    <div class="importbox">
+      <label>Reprendre depuis un fichier<span class="hint">JSON exporté par cet outil, ou tout JSON contenant un tableau « types » avec des « id »</span></label>
+      <div class="row2">
+        <input type="file" id="importFile" accept=".json,application/json" style="font-family:var(--mono);font-size:13px;color:var(--ink-soft)">
+        <span id="importStatus" class="badge" style="display:none"></span>
+      </div>
+    </div>
+
+    <div class="warnbox" id="corsWarn">
+      <b>⚠ Requête bloquée.</b> Si le message évoque <code>CORS</code>/réseau alors que la clé est bonne, l'ouverture en <code>file://</code> est trop restrictive. Déposez ce fichier dans votre dépôt <b>GitHub Pages</b> et ouvrez-le en <code>https://</code> : l'origine devient valide (même principe que votre PWA).
+    </div>
+  </div>
+
+  <!-- ÉTAPE 2 -->
+  <div class="step locked" id="step2">
+    <h2><span class="num">2</span> Choisir les émetteurs</h2>
+    <p class="desc">Arborescence par régions. Chaque émetteur affiche son état : <b style="color:var(--ok)">✓ extrait</b>, <b style="color:var(--gold-soft)">à extraire</b>, ou <b style="color:var(--ink-faint)">interrogé · vide</b> (entrée technique sans pièce, à ignorer).</p>
+    <div class="howto">
+      <b>Marche à suivre</b>
+      <ol>
+        <li>Cliquez <b>Charger la liste</b>, puis <b>Japon</b> (il n'a jamais été extrait).</li>
+        <li>Cliquez <b>Ce qui reste</b> : sélectionne d'un coup tout l'Europe+Japon pas encore fait.</li>
+        <li>Passez à l'étape 3. Ce qui est déjà extrait est sauté automatiquement — aucune requête gaspillée.</li>
+      </ol>
+    </div>
+    <div id="dashboard"></div>
+    <div class="actions" style="margin-bottom:14px">
+      <button class="btn btn-go btn-sm" id="loadIssuers">Charger la liste des émetteurs</button>
+      <button class="btn btn-ghost btn-sm" id="preEurope" disabled>Tout l'Europe</button>
+      <button class="btn btn-ghost btn-sm" id="preJapan" disabled>Japon</button>
+      <button class="btn btn-ghost btn-sm" id="preRemaining" disabled>Ce qui reste (Europe+Japon)</button>
+      <button class="btn btn-ghost btn-sm" id="clearSel" disabled>Tout décocher</button>
+    </div>
+    <div class="issuer-tools" id="issuerToolsWrap" style="display:none">
+      <input type="text" id="issuerSearch" placeholder="Rechercher : France, Japon, Bavière…" spellcheck="false">
+      <span class="selcount"><b id="selN">0</b> sélectionné(s)</span>
+    </div>
+    <div id="dash" class="dash" style="display:none">
+      <div class="card"><div class="big" id="dTypes">0</div><div class="lbl">pièces en cache</div></div>
+      <div class="card"><div class="big" id="dCovered">0</div><div class="lbl">émetteurs couverts</div></div>
+      <div class="card"><div class="big" id="dKeyMiss">0</div><div class="lbl">grands pays manquants</div></div>
+    </div>
+    <div id="keyCountries" class="keycountries" style="display:none">
+      <h3>Pays clés — cliquez pour sélectionner ceux à extraire</h3>
+      <p class="sub"><span class="kc done" style="cursor:default"><span class="dot"></span>déjà couvert</span> &nbsp; <span class="kc missing" style="cursor:default"><span class="dot"></span>manquant — à extraire</span></p>
+      <div class="kc-grid" id="kcGrid"></div>
+    </div>
+    <div class="tree" id="tree" style="display:none"></div>
+    <div class="note" id="euNote" style="display:none">
+      Le classement par région s'appuie sur les noms d'émetteurs (heuristique) ; le groupe <b>« Non classés »</b> réunit tout ce qui n'a pas pu être rangé automatiquement — rien n'est perdu, tout est cochable. Si un émetteur vous semble mal rangé, dites-le-moi et j'ajuste la table.
+    </div>
+  </div>
+
+  <!-- ÉTAPE 3 -->
+  <div class="step locked" id="step3">
+    <h2><span class="num">3</span> Extraire</h2>
+    <p class="desc">Trois façons de cibler ce que vous récupérez. Dans tous les cas, ce qui est déjà en cache n'est jamais retéléchargé, et un rapport indique les nouveautés (utile pour vérifier une section).</p>
+    <div class="cachestat">
+      <span>Cache : <b id="cacheTypes">0</b> pièces</span>
+      <span>enrichies : <b id="cacheDetailed">0</b></span>
+      <span>en échec : <b id="cacheFailed">0</b></span>
+    </div>
+
+    <div class="modeswitch">
+      <button class="mode-btn active" data-mode="country">Par pays</button>
+      <button class="mode-btn" data-mode="piece">Par pièce (recherche)</button>
+      <button class="mode-btn" data-mode="currency">Par devise (multi-pays)</button>
+    </div>
+
+    <!-- mode PAYS -->
+    <div class="modepanel" id="mode-country">
+      <p class="modehint">Extrait l'intégralité des émetteurs cochés à l'étape 2. Idéal pour constituer ou compléter le fond par pays.</p>
+      <div class="actions" style="margin-bottom:4px">
+        <button class="btn btn-go" id="buildIndex" disabled>Construire / compléter l'index</button>
+        <button class="btn btn-stop" id="stopIndex" style="display:none">Arrêter</button>
+        <label class="chk" style="margin-left:6px"><input type="checkbox" id="reindex"> revérifier ce qui est déjà couvert</label>
+      </div>
+    </div>
+
+    <!-- mode PIÈCE -->
+    <div class="modepanel" id="mode-piece" style="display:none">
+      <p class="modehint">Recherche ciblée par mots-clés — pour retrouver, vérifier ou compléter une pièce ou une série précise, éventuellement dans un pays donné.</p>
+      <div class="row">
+        <div class="field" style="flex:2"><label>Mots-clés<span class="hint">ex : « 20 francs or », « napoléon », « 5 mark »</span></label><input type="text" id="pieceQ" spellcheck="false" placeholder="20 francs"></div>
+        <div class="field"><label>Pays<span class="hint">optionnel — laissez vide = tous</span></label><input type="text" id="pieceIssuer" list="issuerDatalist" spellcheck="false" placeholder="France"><datalist id="issuerDatalist"></datalist></div>
+        <div class="field"><label>Année<span class="hint">optionnel</span></label><input type="number" id="pieceYear" placeholder="1914" step="1"></div>
+      </div>
+      <div class="actions" style="margin-bottom:4px">
+        <button class="btn btn-go" id="runPiece" disabled>Rechercher &amp; ajouter</button>
+        <button class="btn btn-stop" id="stopPiece" style="display:none">Arrêter</button>
+      </div>
+    </div>
+
+    <!-- mode DEVISE -->
+    <div class="modepanel" id="mode-currency" style="display:none">
+      <p class="modehint">Rassemble une même devise à travers tous les pays qui l'utilisent (recherche sur l'intitulé). L'euro est très fiable ; pour les autres devises, ajustez les mots-clés au besoin.</p>
+      <div class="currency-presets" id="currencyPresets"></div>
+      <div class="row">
+        <div class="field" style="flex:2"><label>Mots-clés de la devise<span class="hint">rempli par les boutons ci-dessus, modifiable</span></label><input type="text" id="curQ" spellcheck="false" placeholder="euro"></div>
+        <div class="field"><label>Depuis l'année<span class="hint">optionnel — filtre après récupération</span></label><input type="number" id="curYearMin" placeholder="2002" step="1"></div>
+      </div>
+      <div class="actions" style="margin-bottom:4px">
+        <button class="btn btn-go" id="runCurrency" disabled>Rechercher la devise</button>
+        <button class="btn btn-stop" id="stopCurrency" style="display:none">Arrêter</button>
+      </div>
+    </div>
+
+    <div class="field" style="margin:12px 0 0">
+      <label class="chk"><input type="checkbox" id="objTypeOn"> restreindre à une sous-catégorie <span style="color:var(--ink-faint);text-transform:none;letter-spacing:0">(avancé)</span></label>
+      <input type="text" id="objType" placeholder="code object_type Numista, ex depuis la page de recherche du site" spellcheck="false" style="margin-top:8px;display:none">
+    </div>
+
+    <div class="bar"><span id="idxFill"></span></div>
+    <div class="stats">
+      <span class="s-info"><b id="idxIssuer">—</b></span>
+      <span class="s-ok">✓ <b id="idxOk">0</b> nouvelles</span>
+      <span class="s-info"><b id="idxSeen">0</b> déjà en cache</span>
+      <span class="s-info"><b id="idxReq">0</b> requêtes</span>
+    </div>
+    <div class="log" id="idxLog"></div>
+  </div>
+
+  <!-- ÉTAPE 4 -->
+  <div class="step locked" id="step4">
+    <h2><span class="num opt">4</span> Enrichir <span class="badge">1 requête / pièce</span></h2>
+    <p class="desc">Détail complet par pièce (années, composition, tirage, valeur, images HD). <b style="color:var(--err)">Ciblez impérativement</b> : sans filtre, l'enrichissement porterait sur toute votre base et épuiserait le quota.</p>
+
+    <div class="currency-presets" id="enrichPresets"></div>
+
+    <div class="row">
+      <div class="field" style="flex:2"><label>Filtre sur le titre<span class="hint">mots-clés, ex : « 2 euros »</span></label><input type="text" id="fTitle" spellcheck="false" placeholder="2 euros"></div>
+      <div class="field"><label>Pays<span class="hint">optionnel</span></label><input type="text" id="fIssuer" list="issuerDatalist" spellcheck="false" placeholder="tous"></div>
+      <div class="field"><label>Année min<span class="hint">optionnel</span></label><input type="number" id="fYearMin" placeholder="—" step="1"></div>
+      <div class="field"><label>Année max<span class="hint">optionnel</span></label><input type="number" id="fYearMax" placeholder="—" step="1"></div>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label class="chk"><input type="checkbox" id="fExclCartes" checked> exclure les types courants (« 1re carte », « 1er type ») — garde les commémoratives</label>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label class="chk"><input type="checkbox" id="fIssues"> récupérer aussi le <b style="color:var(--gold-soft)">tirage</b> (émissions année par année) — double le coût. <span style="color:var(--ink-faint);text-transform:none;letter-spacing:0">L'atelier, lui, est inclus sans surcoût.</span></label>
+    </div>
+
+    <div id="enrichScope" class="scopebox">Renseignez un filtre pour estimer la portée.</div>
+
+    <div class="diagbox">
+      <label>Diagnostic sur une pièce<span class="hint">2 requêtes — affiche les champs réellement renvoyés et ce que l'export en tirera</span></label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <input type="number" id="diagId" placeholder="ID Numista, ex. 2161" style="flex:1;min-width:160px">
+        <button class="btn btn-ghost btn-sm" id="runDiag">Inspecter</button>
+      </div>
+      <div class="log" id="diagLog" style="max-height:260px"></div>
+    </div>
+
+    <div class="actions" style="margin-bottom:4px">
+      <button class="btn btn-go" id="enrich" disabled>Enrichir la sélection</button>
+      <button class="btn btn-ghost" id="retryFailed" disabled>Réessayer les échecs</button>
+      <button class="btn btn-stop" id="stopEnrich" style="display:none">Arrêter</button>
+    </div>
+    <div class="bar"><span id="enFill"></span></div>
+    <div class="stats">
+      <span class="s-ok">✓ <b id="enOk">0</b></span>
+      <span class="s-err">✕ <b id="enErr">0</b></span>
+      <span class="s-info"><b id="enRemain">0</b> restantes</span>
+      <span class="s-eta" id="enEta"></span>
+    </div>
+    <div class="log" id="enLog"></div>
+    <div class="note">Le cache garde tout : si le quota tombe en cours de route, relancez le mois suivant avec le même filtre — seul le reliquat sera demandé.</div>
+  </div>
+
+  <!-- ÉTAPE 5 -->
+  <div class="step locked" id="step5">
+    <h2><span class="num">5</span> Exporter</h2>
+    <p class="desc">Génère le fichier depuis le cache — 0 requête. Le JSON natif est ré-importable à l'étape 1 ; l'export Médaillier reformate les données aux champs de votre fiche pièce.</p>
+    <div class="actions">
+      <button class="btn btn-go" id="exportMed" disabled>Export Le Médaillier</button>
+      <button class="btn btn-ghost" id="exportJson" disabled>JSON natif</button>
+      <button class="btn btn-ghost" id="exportCsv" disabled>CSV</button>
+      <button class="btn btn-ghost" id="wipe">Vider le cache local</button>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label class="chk"><input type="checkbox" id="medOnlyDetailed" checked> n'exporter que les pièces enrichies <span style="color:var(--ink-faint);text-transform:none;letter-spacing:0">(sinon les champs détaillés seront vides)</span></label>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+'use strict';
+const $ = id => document.getElementById(id);
+const API='https://api.numista.com/api/v3';
+const LS_KEY='numista_apikey', LS_QUOTA='numista_quota', LS_BUDGET='numista_budget', LS_INDEXED='numista_indexed';
+
+/* ---------- IndexedDB ---------- */
+const DB=(function(){
+  let db=null;
+  function open(){return new Promise((res,rej)=>{
+    const r=indexedDB.open('numista_extracteur',1);
+    r.onupgradeneeded=e=>{const d=e.target.result;
+      if(!d.objectStoreNames.contains('issuers'))d.createObjectStore('issuers');
+      if(!d.objectStoreNames.contains('types'))d.createObjectStore('types',{keyPath:'id'});};
+    r.onsuccess=e=>{db=e.target.result;res(db)};r.onerror=e=>rej(e.target.error);});}
+  function st(s,m){return db.transaction(s,m).objectStore(s);}
+  return{
+    async init(){if(!db)await open();},
+    put(s,v,k){return new Promise((res,rej)=>{const r=(k!==undefined)?st(s,'readwrite').put(v,k):st(s,'readwrite').put(v);r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});},
+    get(s,k){return new Promise((res,rej)=>{const r=st(s,'readonly').get(k);r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error);});},
+    getAll(s){return new Promise((res,rej)=>{const r=st(s,'readonly').getAll();r.onsuccess=e=>res(e.target.result||[]);r.onerror=e=>rej(e.target.error);});},
+    count(s){return new Promise((res,rej)=>{const r=st(s,'readonly').count();r.onsuccess=e=>res(e.target.result);r.onerror=e=>rej(e.target.error);});},
+    clear(s){return new Promise((res,rej)=>{const r=st(s,'readwrite').clear();r.onsuccess=()=>res();r.onerror=e=>rej(e.target.error);});},
+    raw(){return db;}
+  };
+})();
+
+/* ---------- quota ---------- */
+function monthKey(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+function loadQuota(){let q;try{q=JSON.parse(localStorage.getItem(LS_QUOTA));}catch(e){}
+  if(!q||q.month!==monthKey()){q={month:monthKey(),count:0};localStorage.setItem(LS_QUOTA,JSON.stringify(q));}return q;}
+function budget(){return parseInt(localStorage.getItem(LS_BUDGET),10)||2000;}
+function quotaLeft(){return budget()-loadQuota().count;}
+function bumpQuota(){const q=loadQuota();q.count++;localStorage.setItem(LS_QUOTA,JSON.stringify(q));renderQuota();}
+function renderQuota(){const q=loadQuota(),b=budget();
+  $('qUsed').textContent=q.count;$('qMax').textContent=b;
+  $('qFill').style.width=Math.min(100,Math.round(q.count/b*100))+'%';
+  const n=new Date();n.setMonth(n.getMonth()+1,1);
+  $('qReset').textContent='remise à zéro le 1ᵉʳ '+n.toLocaleDateString('fr-FR',{month:'long'});}
+
+/* ---------- index registry (émetteurs déjà parcourus) ---------- */
+function loadIndexed(){try{return JSON.parse(localStorage.getItem(LS_INDEXED))||{};}catch(e){return{};}}
+function markIndexed(code,cat){const m=loadIndexed();m[code]=m[code]||{cats:[]};if(!m[code].cats.includes(cat))m[code].cats.push(cat);m[code].date=Date.now();localStorage.setItem(LS_INDEXED,JSON.stringify(m));}
+function isIndexed(code,cat){const m=loadIndexed();return m[code]&&m[code].cats.includes(cat);}
+function isIndexedAny(code){const m=loadIndexed();return m[code]&&m[code].cats&&m[code].cats.length>0;}
+function mergeRegistry(inc){const m=loadIndexed();Object.entries(inc).forEach(([code,v])=>{m[code]=m[code]||{cats:[]};(v.cats||[]).forEach(c=>{if(!m[code].cats.includes(c))m[code].cats.push(c);});m[code].date=v.date||Date.now();});localStorage.setItem(LS_INDEXED,JSON.stringify(m));}
+
+/* statut d'un émetteur, basé sur les DONNÉES réelles :
+   'pieces'  = des pièces sont en cache pour ce code (couvert, tangible)
+   'queried' = interrogé (registre) mais 0 pièce sous ce code (= section/tête déjà faite)
+   'none'    = rien : à extraire */
+/* pays « clés » : Japon + pays souverains européens actuels (matchés par nom) */
+const KEY_COUNTRIES=[
+ ['Japon',['japon','japan']],['France',['france']],['Allemagne',['allemagne']],['Autriche',['autriche']],
+ ['Belgique',['belgique']],['Pays-Bas',['pays-bas']],['Luxembourg',['luxembourg']],['Suisse',['suisse']],
+ ['Espagne',['espagne']],['Portugal',['portugal']],['Italie',['italie']],['Royaume-Uni',['royaume-uni','grande-bretagne']],
+ ['Irlande',['irlande']],['Danemark',['danemark']],['Suède',['suede']],['Norvège',['norvege']],
+ ['Finlande',['finlande']],['Islande',['islande']],['Pologne',['pologne']],['Tchéquie',['tcheque','tchequie']],
+ ['Slovaquie',['slovaquie']],['Hongrie',['hongrie']],['Roumanie',['roumanie']],['Bulgarie',['bulgarie']],
+ ['Grèce',['grece']],['Croatie',['croatie']],['Slovénie',['slovenie']],['Serbie',['serbie']],
+ ['Ukraine',['ukraine']],['Russie',['russie']],['Estonie',['estonie']],['Lettonie',['lettonie']],
+ ['Lituanie',['lituanie']],['Monaco',['monaco']],['Malte',['malte']],['Andorre',['andorre']],['Chypre',['chypre']]
+];
+/* renvoie les émetteurs de la liste dont le nom correspond au pays (hors entités clairement historiques) */
+function issuersForCountry(keys){
+  return issuers.filter(i=>{const n=norm(i.name);return keys.some(k=>n.includes(norm(k)));});
+}
+
+/* ---------- API ---------- */
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function apiKey(){return localStorage.getItem(LS_KEY)||'';}
+async function apiGet(path,params){
+  if(quotaLeft()<=0)throw new Error('QUOTA_EPUISE');
+  const url=new URL(API+path);
+  if(params)Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')url.searchParams.set(k,v);});
+  let res;try{res=await fetch(url.toString(),{headers:{'Numista-API-Key':apiKey()}});}
+  catch(e){throw new Error('RESEAU: '+e.message+' (probable CORS en file://)');}
+  bumpQuota();
+  if(res.status===401||res.status===403)throw new Error('CLE_INVALIDE ('+res.status+')');
+  if(res.status===429)throw new Error('RATE_LIMIT');
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  return res.json();
+}
+
+/* ---------- taxonomie régionale (heuristique par nom) ---------- */
+const norm=s=>(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+/* ordre = priorité d'affectation : les groupes historiques spécifiques d'abord */
+const GROUPS=[
+ {id:'de_states',label:'Europe — États allemands (hist.)',keys:['prusse','prussia','baviere','bavaria','saxe','saxony','wurtemberg','wurttemberg','bade','baden','hanovre','hanover','hesse','hesse-','francfort','frankfurt','hambourg','hamburg','breme','bremen','lubeck','lubeck','nuremberg','augsbourg','augsburg','cologne','mayence','mainz','treves','trier','palatinat','palatine','brunswick','mecklembourg','mecklenburg','oldenbourg','oldenburg','waldeck','lippe','reuss','schwarzbourg','anhalt','wurzbourg','wurttemberg','empire allemand','german empire','german states','etats allemands','confederation','westphalie','westphalia','nassau','saxe-','weimar']},
+ {id:'it_states',label:'Europe — États italiens (hist.)',keys:['sardaigne','sardinia','deux-siciles','two sicilies','siciles','naples','toscane','tuscany','venise','venice','venitien','genes','genoa','milan','milanais','lombardie','lombardy','parme','parma','modene','modena','etats pontificaux','papal','pontifical','lucques','lucca','mantoue','mantua','savoie','savoy','ferrare','ferrara','urbino','massa']},
+ {id:'empires',label:'Europe — Empires & Antiquité (hist.)',keys:['austro-hongrois','austro-hongrie','austro-hungar','saint-empire','holy roman','byzantin','byzantine','byzance','ottoman','romaine','romain','roman empire','rome','grece antique','ancient greek','celte','celtic','gaule','merovingien','merovingian','carolingien','carolingian','feodal','feudal','croises','crusader']},
+ {id:'gone_states',label:'Europe — États disparus (hist.)',keys:['yougoslavie','yugoslavia','tchecoslovaquie','czechoslovakia','union sovietique','soviet','urss','ussr','rda','ddr','allemagne de l','allemagne de l\u2019est','allemagne de l\u2019ouest','serbie-et-montenegro']},
+ {id:'east_asia',label:'Asie de l\u2019Est — Japon',keys:['japon','japan','japonais','ryukyu','ryuku']},
+ {id:'eu_west',label:'Europe de l\u2019Ouest',keys:['france','francaise','monaco','allemagne','germany','autriche','austria','belgique','belgium','pays-bas','netherlands','hollande','luxembourg','suisse','switzerland','swiss','helvetia','liechtenstein']},
+ {id:'eu_brit',label:'Îles Britanniques',keys:['royaume-uni','united kingdom','grande-bretagne','great britain','angleterre','england','ecosse','scotland','pays de galles','wales','irlande','ireland','guernesey','guernsey','jersey','ile de man','isle of man','gibraltar']},
+ {id:'eu_south',label:'Europe du Sud',keys:['espagne','spain','espagnol','catalogne','portugal','portugais','andorre','andorra','italie','italy','italien','saint-marin','san marino','vatican','saint-siege','malte','malta','grece','greece','grec','chypre','cyprus']},
+ {id:'eu_north',label:'Europe du Nord',keys:['danemark','denmark','danois','suede','sweden','suedois','norvege','norway','norvegien','finlande','finland','finlandais','islande','iceland','feroe','faroe','groenland','greenland']},
+ {id:'eu_central',label:'Europe centrale & orientale',keys:['pologne','poland','polonais','tchequie','republique tcheque','czech','tcheque','slovaquie','slovakia','slovaque','hongrie','hungary','hongrois','roumanie','romania','roumain','moldavie','moldova','ukraine','ukrainien','bielorussie','belarus']},
+ {id:'eu_balkans',label:'Balkans',keys:['slovenie','slovenia','croatie','croatia','serbie','serbia','bosnie','bosnia','montenegro','macedoine','macedonia','albanie','albania','kosovo','bulgarie','bulgaria']},
+ {id:'eu_baltic',label:'Pays baltes',keys:['estonie','estonia','lettonie','latvia','lituanie','lithuania']},
+ {id:'eu_russia',label:'Russie',keys:['russie','russia','russe','empire russe']},
+ {id:'world',label:'Reste du monde',keys:['etats-unis','united states','canada','mexique','mexico','bresil','brazil','argentine','chine','china','chinois','inde','india','coree','korea','vietnam','thailande','thailand','indonesie','philippines','turquie','turkey','iran','irak','arabie','israel','egypte','egypt','maroc','morocco','tunisie','algerie','afrique','africa','nigeria','afrique du sud','south africa','australie','australia','nouvelle-zelande','new zealand','bresil']}
+];
+function groupOf(name){const n=norm(name);for(const g of GROUPS){if(g.keys.some(k=>n.includes(norm(k))))return g.id;}return 'unclassified';}
+
+/* ---------- état ---------- */
+let issuers=[];               // [{code,name,...}]
+let byGroup={};               // groupId -> [issuer]
+let selected=new Set();
+let cacheCount={};            // issuerCode -> nb pièces en cache
+let stopFlag=false;
+let apiGroupField=null;       // si l'API fournit un vrai champ de groupe
+
+/* ---------- init ---------- */
+async function init(){
+  await DB.init(); renderQuota();
+  const k=apiKey(); if(k)$('apiKey').value=k;
+  const b=localStorage.getItem(LS_BUDGET); if(b)$('budget').value=b;
+  const ci=await DB.get('issuers','list');
+  if(ci&&ci.length){issuers=ci;detectGroupField();buildGroups();onIssuersReady();unlock(2);}
+  await refreshCacheStats();
+  if(k)unlock(2);
+}
+function unlock(n){for(let i=2;i<=n;i++)$('step'+i).classList.remove('locked');}
+
+/* ---------- état unifié d'un émetteur ---------- */
+const EU_JP_GROUPS=['eu_west','eu_brit','eu_south','eu_north','eu_central','eu_balkans','eu_baltic','eu_russia','de_states','it_states','empires','gone_states','east_asia'];
+function covered(code){return (cacheCount[code]||0)>0 || isIndexedAny(code);}
+function leafStatusHTML(code){
+  const n=cacheCount[code]||0;
+  if(n>0) return '<span class="stt done">✓ '+n.toLocaleString('fr-FR')+' pièce'+(n>1?'s':'')+'</span>';
+  if(isIndexedAny(code)) return '<span class="stt empty">interrogé · vide</span>';
+  return '<span class="stt todo">à extraire</span>';
+}
+function updateDashboard(){
+  if(!issuers.length)return;
+  const inScope=[];EU_JP_GROUPS.forEach(gid=>(byGroup[gid]||[]).forEach(i=>inScope.push(i.code)));
+  const uniq=[...new Set(inScope)];
+  let done=0,empty=0,todo=0,pcs=0;
+  uniq.forEach(c=>{const n=cacheCount[c]||0;if(n>0){done++;pcs+=n;}else if(isIndexedAny(c)){empty++;}else{todo++;}});
+  const el=$('dashboard');if(!el)return;
+  el.innerHTML='<b>Périmètre Europe + Japon</b> : '+
+    '<span class="d-done">'+done+' extraits</span> · '+
+    '<span class="d-todo">'+todo+' à extraire</span>'+
+    (empty?' · <span class="d-empty">'+empty+' vides</span>':'')+
+    ' — <b>'+pcs.toLocaleString('fr-FR')+'</b> pièces';
+  el.style.display='block';
+}
+
+async function refreshCacheStats(){
+  const all=await DB.getAll('types');
+  cacheCount={};
+  all.forEach(t=>{const c=(t.issuer&&t.issuer.code)||t._issuerCode||'?';cacheCount[c]=(cacheCount[c]||0)+1;});
+  $('cacheTypes').textContent=all.length.toLocaleString('fr-FR');
+  $('cacheDetailed').textContent=all.filter(t=>t._detailed).length.toLocaleString('fr-FR');
+  $('cacheFailed').textContent=all.filter(t=>t._failed).length.toLocaleString('fr-FR');
+  $('enRemain').textContent=all.filter(t=>!t._detailed&&!t._failed).length.toLocaleString('fr-FR');
+  const has=all.length>0;
+  $('exportJson').disabled=!has;$('exportCsv').disabled=!has;$('exportMed').disabled=!has;
+  $('retryFailed').disabled=all.filter(t=>t._failed).length===0;
+  if(has)unlock(5);
+  // rafraîchir l'état affiché dans l'arbre
+  document.querySelectorAll('.leaf').forEach(l=>{
+    const code=l.dataset.code; if(!code)return;
+    const stt=l.querySelector('.stt'); if(stt) stt.outerHTML=leafStatusHTML(code);
+  });
+  refreshGroupMeta();updateDashboard();
+}
+
+/* ---------- ÉTAPE 1 ---------- */
+$('toggleKey').addEventListener('click',()=>{const f=$('apiKey'),s=f.type==='password';f.type=s?'text':'password';$('toggleKey').textContent=s?'Masquer':'Afficher';});
+$('saveConfig').addEventListener('click',async()=>{
+  const k=$('apiKey').value.trim(); if(!k){alert('Renseignez votre clé API.');return;}
+  localStorage.setItem(LS_KEY,k);
+  localStorage.setItem(LS_BUDGET,String(Math.max(1,parseInt($('budget').value,10)||2000)));
+  renderQuota();
+  const st=$('configStatus');st.style.display='inline-block';st.className='badge';st.textContent='test…';$('corsWarn').classList.remove('on');
+  try{const r=await apiGet('/types',{q:'euro',count:1,lang:$('lang').value});
+    st.className='badge gold';st.textContent='✓ clé valide';unlock(2);unlock(3);}
+  catch(e){st.className='badge';st.style.borderColor='var(--err)';st.style.color='var(--err)';st.textContent='✕ '+e.message;
+    if(/RESEAU|CORS/.test(e.message))$('corsWarn').classList.add('on');}
+});
+
+/* ---------- IMPORT JSON ---------- */
+function putBatch(arr){ // écrit un lot dans UNE transaction (rapide)
+  return new Promise((res,rej)=>{
+    const tx=DB.raw().transaction('types','readwrite'),os=tx.objectStore('types');
+    arr.forEach(o=>os.put(o));
+    tx.oncomplete=()=>res();tx.onerror=e=>rej(e.target.error);
+  });
+}
+$('importFile').addEventListener('change',async e=>{
+  const file=e.target.files[0]; if(!file)return;
+  const st=$('importStatus');st.style.display='inline-block';st.className='badge';st.textContent='lecture…';
+  try{
+    const txt=await file.text(); const data=JSON.parse(txt);
+    const arr=Array.isArray(data)?data:(data.types||data.items||[]);
+    if(!Array.isArray(arr)||!arr.length)throw new Error('aucun tableau « types » trouvé');
+
+    // état existant en mémoire (une seule lecture)
+    const existing=await DB.getAll('types');
+    const map=new Map(existing.map(t=>[t.id,t]));
+    let added=0,updated=0,skipped=0;
+    const toWrite=[];
+    for(const t of arr){
+      if(t==null||t.id===undefined){skipped++;continue;}
+      const ex=map.get(t.id);
+      if(!ex){toWrite.push({_detailed:!!t._detailed,...t});added++;}
+      else{toWrite.push({...ex,...t,_detailed:ex._detailed||t._detailed||false,_failed:ex._failed&&t._failed});updated++;}
+    }
+    // écriture par lots de 800 avec progression
+    for(let i=0;i<toWrite.length;i+=800){
+      await putBatch(toWrite.slice(i,i+800));
+      st.textContent='écriture… '+Math.min(i+800,toWrite.length)+'/'+toWrite.length;
+    }
+
+    // --- reconstruction du registre « déjà interrogé » ---
+    let regMsg='';
+    if(data.indexed_registry&&typeof data.indexed_registry==='object'){
+      mergeRegistry(data.indexed_registry);                 // format récent : registre embarqué
+      regMsg=' · registre restauré';
+    }else{
+      // format ancien : on déduit depuis les codes interrogés (_issuerCode) présents
+      const reg=loadIndexed();
+      const seen=new Set();
+      const all=[...map.values(),...toWrite];
+      all.forEach(t=>{
+        const code=t._issuerCode||(t.issuer&&t.issuer.code);
+        const cat=t.category||'coin';
+        if(code){const key=code+'|'+cat;if(!seen.has(key)){seen.add(key);reg[code]=reg[code]||{cats:[]};if(!reg[code].cats.includes(cat))reg[code].cats.push(cat);reg[code].date=Date.now();}}
+      });
+      localStorage.setItem(LS_INDEXED,JSON.stringify(reg));
+      regMsg=' · '+seen.size+' émetteurs marqués « déjà interrogés » (déduit)';
+    }
+
+    st.className='badge ok';st.textContent='✓ '+added+' ajoutées, '+updated+' complétées'+(skipped?', '+skipped+' ignorées':'')+regMsg;
+    await refreshCacheStats(); if(issuers.length)renderTree(); await updateScope(); unlock(3); unlock(4); unlock(5);
+  }catch(err){st.className='badge';st.style.borderColor='var(--err)';st.style.color='var(--err)';st.textContent='✕ '+err.message;}
+  e.target.value='';
+});
+
+/* ---------- ÉTAPE 2 : arbre ---------- */
+function detectGroupField(){
+  if(!issuers.length)return;
+  const sample=issuers[0];
+  for(const f of ['parent_group','group','category','region','parent','continent']){
+    if(sample[f]!==undefined){apiGroupField=f;break;}
+  }
+}
+function buildGroups(){
+  byGroup={};
+  if(apiGroupField){
+    // vrai champ fourni par l'API
+    issuers.forEach(i=>{const g=String(i[apiGroupField]||'Autres');(byGroup[g]=byGroup[g]||[]).push(i);});
+  }else{
+    GROUPS.forEach(g=>byGroup[g.id]=[]);
+    byGroup['unclassified']=[];
+    issuers.forEach(i=>{byGroup[groupOf(i.name)].push(i);});
+  }
+}
+function groupList(){
+  if(apiGroupField){
+    return Object.keys(byGroup).sort((a,b)=>a.localeCompare(b,'fr')).map(g=>({id:g,label:g,items:byGroup[g]}));
+  }
+  const out=GROUPS.filter(g=>byGroup[g.id]&&byGroup[g.id].length).map(g=>({id:g.id,label:g.label,items:byGroup[g.id]}));
+  if(byGroup['unclassified'].length)out.push({id:'unclassified',label:'Non classés',items:byGroup['unclassified']});
+  return out;
+}
+function onIssuersReady(){
+  $('issuerToolsWrap').style.display='flex';
+  $('tree').style.display='block';$('euNote').style.display='block';
+  ['preEurope','preJapan','preRemaining','clearSel'].forEach(id=>$(id).disabled=false);
+  $('selN').textContent=selected.size;
+  renderTree();populatePieceHelpers();
+}
+function renderTree(){
+  const tree=$('tree');tree.innerHTML='';tree.classList.remove('flat');
+  groupList().forEach(g=>{
+    const grp=document.createElement('div');grp.className='grp';grp.dataset.gid=g.id;
+    const head=document.createElement('div');head.className='grp-head';
+    head.innerHTML='<span class="chev">▶</span>'+
+      '<input type="checkbox" class="gchk">'+
+      '<span class="glabel">'+g.label+'</span>'+
+      '<span class="gmeta"><span class="gtotal">'+g.items.length+'</span> ém. · <span class="gsel">0</span> sél. · <span class="gcache">0</span> pcs</span>';
+    const body=document.createElement('div');body.className='grp-body';
+    let rendered=false;
+    head.addEventListener('click',ev=>{
+      if(ev.target.classList.contains('gchk'))return;
+      const open=body.classList.toggle('open');head.classList.toggle('open',open);
+      if(open&&!rendered){renderLeaves(body,g.items);rendered=true;refreshCacheStats();}
+    });
+    head.querySelector('.gchk').addEventListener('click',ev=>{
+      ev.stopPropagation();
+      const on=ev.target.checked;
+      g.items.forEach(i=>{if(on)selected.add(i.code);else selected.delete(i.code);});
+      if(rendered)body.querySelectorAll('.leaf').forEach(l=>{const c=l.querySelector('input');c.checked=on;l.classList.toggle('on',on);});
+      $('selN').textContent=selected.size;refreshGroupMeta();updateStep3();
+    });
+    grp.appendChild(head);grp.appendChild(body);tree.appendChild(grp);
+  });
+  refreshGroupMeta();
+}
+function renderLeaves(container,items){
+  container.innerHTML='';
+  items.slice().sort((a,b)=>a.name.localeCompare(b.name,'fr')).forEach(i=>{
+    const leaf=document.createElement('label');leaf.className='leaf'+(selected.has(i.code)?' on':'');leaf.dataset.code=i.code;
+    leaf.innerHTML='<input type="checkbox" '+(selected.has(i.code)?'checked':'')+'>'+
+      '<span>'+i.name.replace(/</g,'&lt;')+'</span> <span class="code">'+i.code+'</span>'+
+      leafStatusHTML(i.code);
+    leaf.querySelector('input').addEventListener('change',e=>{
+      if(e.target.checked)selected.add(i.code);else selected.delete(i.code);
+      leaf.classList.toggle('on',e.target.checked);
+      $('selN').textContent=selected.size;refreshGroupMeta();updateStep3();
+    });
+    container.appendChild(leaf);
+  });
+}
+function refreshGroupMeta(){
+  document.querySelectorAll('.grp').forEach(grp=>{
+    const gid=grp.dataset.gid;const items=(groupList().find(g=>g.id===gid)||{}).items||[];
+    let sel=0,cache=0;items.forEach(i=>{if(selected.has(i.code))sel++;cache+=cacheCount[i.code]||0;});
+    grp.querySelector('.gsel').textContent=sel;
+    grp.querySelector('.gcache').textContent=cache.toLocaleString('fr-FR');
+    const chk=grp.querySelector('.gchk');
+    chk.checked=sel>0&&sel===items.length;chk.indeterminate=sel>0&&sel<items.length;
+  });
+}
+/* recherche : bascule en liste plate filtrée */
+$('issuerSearch').addEventListener('input',e=>{
+  const q=norm(e.target.value.trim());
+  if(!q){renderTree();return;}
+  const tree=$('tree');tree.innerHTML='';tree.classList.add('flat');
+  const hits=issuers.filter(i=>norm(i.name).includes(q)||norm(i.code).includes(q)).slice(0,400);
+  hits.forEach(i=>{
+    const leaf=document.createElement('label');leaf.className='leaf'+(selected.has(i.code)?' on':'');leaf.dataset.code=i.code;
+    leaf.innerHTML='<input type="checkbox" '+(selected.has(i.code)?'checked':'')+'>'+
+      '<span>'+i.name.replace(/</g,'&lt;')+'</span> <span class="code">'+i.code+'</span>'+
+      leafStatusHTML(i.code);
+    leaf.querySelector('input').addEventListener('change',ev=>{
+      if(ev.target.checked)selected.add(i.code);else selected.delete(i.code);
+      leaf.classList.toggle('on',ev.target.checked);$('selN').textContent=selected.size;updateStep3();
+    });
+    tree.appendChild(leaf);
+  });
+  if(!hits.length){tree.innerHTML='<div style="padding:12px;color:var(--ink-faint);font-family:var(--mono);font-size:12px">aucun émetteur trouvé</div>';}
+});
+
+$('loadIssuers').addEventListener('click',async()=>{
+  const btn=$('loadIssuers');btn.disabled=true;btn.textContent='chargement…';
+  try{
+    const r=await apiGet('/issuers',{lang:$('lang').value});
+    issuers=(r.issuers||[]).sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+    await DB.put('issuers',issuers,'list');
+    detectGroupField();buildGroups();onIssuersReady();
+    btn.textContent='Liste chargée ✓';
+  }catch(e){btn.disabled=false;btn.textContent='Charger la liste des émetteurs';alert('Échec : '+e.message);
+    if(/RESEAU|CORS/.test(e.message))$('corsWarn').classList.add('on');}
+});
+$('preEurope').addEventListener('click',()=>{
+  const euGroups=EU_JP_GROUPS.filter(g=>g!=='east_asia');
+  euGroups.forEach(gid=>(byGroup[gid]||[]).forEach(i=>selected.add(i.code)));
+  $('selN').textContent=selected.size;renderTree();updateStep3();
+});
+$('preJapan').addEventListener('click',()=>{(byGroup['east_asia']||[]).forEach(i=>selected.add(i.code));$('selN').textContent=selected.size;renderTree();updateStep3();});
+$('preRemaining').addEventListener('click',()=>{
+  // sélectionne les émetteurs Europe + Japon PAS encore couverts (ni pièces, ni interrogés)
+  let n=0;EU_JP_GROUPS.forEach(gid=>(byGroup[gid]||[]).forEach(i=>{if(!covered(i.code)){selected.add(i.code);n++;}}));
+  $('selN').textContent=selected.size;renderTree();updateStep3();
+  if(n===0)alert('Tout l\'Europe et le Japon de la liste sont déjà couverts. Cochez « revérifier » à l\'étape 3 si vous pensez qu\'un émetteur est incomplet.');
+  else alert(n+' émetteur(s) restant(s) sélectionné(s) — passez à l\'étape 3 pour les extraire.');
+});
+$('clearSel').addEventListener('click',()=>{selected.clear();$('selN').textContent='0';renderTree();updateStep3();});
+
+function updateStep3(){$('buildIndex').disabled=selected.size===0;if(selected.size)unlock(3);}
+
+/* ---------- ÉTAPE 3 ---------- */
+function chosenCategories(){const c=[];if($('catCoin').checked)c.push('coin');if($('catBank').checked)c.push('banknote');if($('catExo').checked)c.push('exonumia');return c.length?c:['coin'];}
+function objTypeParam(){return ($('objTypeOn').checked && $('objType').value.trim()) ? $('objType').value.trim() : undefined;}
+function idxLog(t,cls){const d=document.createElement('div');d.className=cls;d.textContent=(cls==='l-ok'?'✓ ':cls==='l-warn'?'! ':'✕ ')+t;$('idxLog').appendChild(d);$('idxLog').scrollTop=$('idxLog').scrollHeight;}
+function resetIdxStats(){$('idxOk').textContent='0';$('idxSeen').textContent='0';$('idxReq').textContent='0';$('idxFill').style.width='0%';}
+
+/* --- sélecteur de mode --- */
+document.querySelectorAll('.mode-btn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.mode-btn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  const m=b.dataset.mode;
+  $('mode-country').style.display=m==='country'?'block':'none';
+  $('mode-piece').style.display=m==='piece'?'block':'none';
+  $('mode-currency').style.display=m==='currency'?'block':'none';
+}));
+$('objTypeOn').addEventListener('change',e=>{$('objType').style.display=e.target.checked?'block':'none';});
+
+/* --- datalist des émetteurs (mode pièce) + préréglages devises --- */
+function populatePieceHelpers(){
+  const dl=$('issuerDatalist');if(dl&&issuers.length&&!dl.childElementCount){
+    const frag=document.createDocumentFragment();
+    issuers.forEach(i=>{const o=document.createElement('option');o.value=i.name;o.label=i.code;frag.appendChild(o);});
+    dl.appendChild(frag);
+  }
+}
+const CURRENCIES=[['Euro','euro'],['Franc','franc'],['Mark','mark'],['Peseta','peseta'],['Lire','lira'],['Livre','pound'],['Couronne','krone'],['Florin','florin'],['Ducat','ducat'],['Thaler','thaler'],['Rouble','rouble'],['Drachme','drachma'],['Yen','yen'],['Escudo','escudo']];
+(function initCurrencyChips(){
+  const box=$('currencyPresets');if(!box)return;
+  CURRENCIES.forEach(([label,q])=>{
+    const c=document.createElement('button');c.type='button';c.className='cur-chip';c.textContent=label;
+    c.addEventListener('click',()=>{document.querySelectorAll('.cur-chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');$('curQ').value=q;$('runCurrency').disabled=false;});
+    box.appendChild(c);
+  });
+})();
+$('pieceQ').addEventListener('input',()=>{$('runPiece').disabled=!$('pieceQ').value.trim();});
+$('curQ').addEventListener('input',()=>{$('runCurrency').disabled=!$('curQ').value.trim();});
+
+function nameToCode(v){if(!v)return undefined;const t=norm(v.trim());const hit=issuers.find(i=>norm(i.name)===t)||issuers.find(i=>norm(i.code)===t)||issuers.find(i=>norm(i.name).includes(t));return hit?hit.code:v.trim();}
+
+/* --- moteur de recherche partagé (modes pièce & devise) --- */
+async function runSearch(params,label,yearMin){
+  if(quotaLeft()<=0){alert('Quota mensuel épuisé.');return;}
+  stopFlag=false;
+  $('idxLog').classList.add('on');$('idxLog').innerHTML='';resetIdxStats();
+  $('idxIssuer').textContent=label;
+  const lang=$('lang').value,cats=chosenCategories();
+  let added=0,seen=0,req=0;
+  outer:
+  for(const cat of cats){
+    let page=1;
+    while(true){
+      if(stopFlag){idxLog('Arrêt demandé.','l-warn');break outer;}
+      if(quotaLeft()<=0){idxLog('Quota atteint — reprise le mois prochain.','l-warn');break outer;}
+      let r;
+      try{r=await apiGet('/types',{...params,category:cat,object_type:objTypeParam(),page,count:50,lang});req++;}
+      catch(e){
+        if(e.message==='QUOTA_EPUISE')break outer;
+        if(e.message==='RATE_LIMIT'){idxLog('Ralentissement — pause 5 s','l-warn');await sleep(5000);continue;}
+        idxLog(cat+' p'+page+' → '+e.message,'l-err');break;
+      }
+      const arr=r.types||[];
+      for(const t of arr){
+        if(yearMin && (t.max_year||t.min_year||9999)<yearMin) continue; // filtre année côté client
+        const ex=await DB.get('types',t.id);
+        if(!ex){await DB.put('types',{...t,_issuerCode:(t.issuer&&t.issuer.code),_detailed:false});added++;}
+        else seen++;
+      }
+      $('idxOk').textContent=added;$('idxSeen').textContent=seen;$('idxReq').textContent=req;
+      if(r.count)$('idxFill').style.width=Math.min(100,Math.round((page*50)/r.count*100))+'%';
+      if(arr.length<50)break;
+      page++;await sleep(320);
+    }
+  }
+  $('idxFill').style.width='100%';
+  idxLog('Terminé : '+added+' nouvelle(s), '+seen+' déjà en cache, '+req+' requête(s).','l-ok');
+  $('idxIssuer').textContent='terminé';
+  await refreshCacheStats();unlock(4);unlock(5);
+}
+
+/* --- mode PIÈCE --- */
+$('stopPiece').addEventListener('click',()=>{stopFlag=true;$('stopPiece').disabled=true;});
+$('runPiece').addEventListener('click',async()=>{
+  const q=$('pieceQ').value.trim();if(!q)return;
+  const issuer=nameToCode($('pieceIssuer').value);
+  const year=$('pieceYear').value?parseInt($('pieceYear').value,10):undefined;
+  $('runPiece').style.display='none';$('stopPiece').style.display='';$('stopPiece').disabled=false;
+  await runSearch({q,issuer,year},'Recherche : « '+q+' »'+(issuer?' · '+issuer:'')+(year?' · '+year:''));
+  $('runPiece').style.display='';$('stopPiece').style.display='none';
+});
+
+/* --- mode DEVISE --- */
+$('stopCurrency').addEventListener('click',()=>{stopFlag=true;$('stopCurrency').disabled=true;});
+$('runCurrency').addEventListener('click',async()=>{
+  const q=$('curQ').value.trim();if(!q)return;
+  const yearMin=$('curYearMin').value?parseInt($('curYearMin').value,10):undefined;
+  $('runCurrency').style.display='none';$('stopCurrency').style.display='';$('stopCurrency').disabled=false;
+  await runSearch({q},'Devise : « '+q+' » (tous pays)'+(yearMin?' · depuis '+yearMin:''),yearMin);
+  $('runCurrency').style.display='';$('stopCurrency').style.display='none';
+});
+
+/* --- mode PAYS (index complet des émetteurs cochés) --- */
+$('stopIndex').addEventListener('click',()=>{stopFlag=true;$('stopIndex').disabled=true;});
+$('buildIndex').addEventListener('click',async()=>{
+  if(quotaLeft()<=0){alert('Quota mensuel épuisé.');return;}
+  stopFlag=false;
+  $('buildIndex').style.display='none';$('stopIndex').style.display='';$('stopIndex').disabled=false;
+  $('idxLog').classList.add('on');$('idxLog').innerHTML='';resetIdxStats();
+  const cats=chosenCategories(),lang=$('lang').value,reindex=$('reindex').checked;
+  const codes=[...selected];let req=0,added=0,seen=0;
+  outer:
+  for(let ci=0;ci<codes.length;ci++){
+    const code=codes[ci];const iss=issuers.find(x=>x.code===code);
+    $('idxIssuer').textContent=(iss?iss.name:code)+'  ('+(ci+1)+'/'+codes.length+')';
+    $('idxFill').style.width=Math.round(ci/codes.length*100)+'%';
+    for(const cat of cats){
+      if(!reindex&&(isIndexed(code,cat)||(cacheCount[code]||0)>0)){idxLog((iss?iss.name:code)+' déjà couvert — sauté','l-warn');continue;}
+      let page=1,complete=true;
+      while(true){
+        if(stopFlag){idxLog('Arrêt demandé.','l-warn');complete=false;break outer;}
+        if(quotaLeft()<=0){idxLog('Quota atteint — reprise le mois prochain.','l-warn');complete=false;break outer;}
+        let r;
+        try{r=await apiGet('/types',{issuer:code,category:cat,object_type:objTypeParam(),page,count:50,lang});req++;}
+        catch(e){
+          if(e.message==='QUOTA_EPUISE'){complete=false;break outer;}
+          if(e.message==='RATE_LIMIT'){idxLog('Ralentissement — pause 5 s','l-warn');await sleep(5000);continue;}
+          idxLog(code+'/'+cat+' p'+page+' → '+e.message,'l-err');complete=false;break;
+        }
+        const arr=r.types||[];
+        for(const t of arr){const ex=await DB.get('types',t.id);if(!ex){await DB.put('types',{...t,_issuerCode:code,_detailed:false});added++;}else seen++;}
+        $('idxOk').textContent=added;$('idxSeen').textContent=seen;$('idxReq').textContent=req;
+        if(arr.length<50)break;
+        page++;await sleep(320);
+      }
+      if(complete)markIndexed(code,cat);
+    }
+  }
+  $('idxFill').style.width='100%';$('idxIssuer').textContent='terminé';
+  idxLog('Terminé : '+added+' nouvelle(s), '+seen+' déjà en cache, '+req+' requête(s).','l-ok');
+  $('buildIndex').style.display='';$('stopIndex').style.display='none';
+  await refreshCacheStats();unlock(4);unlock(5);
+});
+
+/* ---------- ÉTAPE 4 : enrichissement ciblé ---------- */
+function enLog(t,cls){const d=document.createElement('div');d.className=cls;d.textContent=(cls==='l-ok'?'✓ ':cls==='l-warn'?'! ':'✕ ')+t;$('enLog').appendChild(d);$('enLog').scrollTop=$('enLog').scrollHeight;}
+$('stopEnrich').addEventListener('click',()=>{stopFlag=true;$('stopEnrich').disabled=true;});
+
+/* préréglages d'enrichissement */
+const EN_PRESETS=[
+  ['2 € commémoratives',{title:'2 euro',exclCartes:true}],
+  ['Toutes les 2 €',{title:'2 euro',exclCartes:false}],
+  ['Toutes les pièces euro',{title:'euro',exclCartes:false}],
+  ['Zone euro depuis 2002',{title:'euro',yearMin:2002,exclCartes:false}]
+];
+(function initEnrichChips(){
+  const box=$('enrichPresets');if(!box)return;
+  EN_PRESETS.forEach(([label,cfg])=>{
+    const c=document.createElement('button');c.type='button';c.className='cur-chip';c.textContent=label;
+    c.addEventListener('click',()=>{
+      document.querySelectorAll('#enrichPresets .cur-chip').forEach(x=>x.classList.remove('on'));c.classList.add('on');
+      $('fTitle').value=cfg.title||'';$('fIssuer').value='';
+      $('fYearMin').value=cfg.yearMin||'';$('fYearMax').value='';
+      $('fExclCartes').checked=!!cfg.exclCartes;
+      updateScope();
+    });
+    box.appendChild(c);
+  });
+})();
+
+/* filtre appliqué au cache */
+function enrichFilter(all){
+  const q=norm($('fTitle').value.trim());
+  const iss=norm($('fIssuer').value.trim());
+  const yMin=$('fYearMin').value?parseInt($('fYearMin').value,10):null;
+  const yMax=$('fYearMax').value?parseInt($('fYearMax').value,10):null;
+  const excl=$('fExclCartes').checked;
+  const hasFilter=q||iss||yMin||yMax;
+  if(!hasFilter)return null; // aucun filtre = on refuse (garde-fou quota)
+  return all.filter(t=>{
+    const title=norm(t.title||'');
+    if(q&&!title.includes(q))return false;
+    if(excl&&/\d\s*(re|e|er)\s*carte|1er type|1re effigie/i.test(t.title||''))return false;
+    if(iss){const n=norm((t.issuer&&t.issuer.name)||'')+' '+norm((t.issuer&&t.issuer.code)||t._issuerCode||'');if(!n.includes(iss))return false;}
+    const mn=t.min_year,mx=t.max_year||t.min_year;
+    if(yMin&&(mx||9999)<yMin)return false;
+    if(yMax&&(mn||0)>yMax)return false;
+    return true;
+  });
+}
+async function updateScope(){
+  const all=await DB.getAll('types');
+  const sel=enrichFilter(all);
+  const box=$('enrichScope');
+  if(sel===null){
+    box.className='scopebox warn';
+    box.innerHTML='⚠ Aucun filtre actif — renseignez au moins un critère. Sans cela l\'enrichissement porterait sur <b>'+all.filter(t=>!t._detailed&&!t._failed).length.toLocaleString('fr-FR')+'</b> pièces.';
+    $('enrich').disabled=true;return;
+  }
+  const todo=sel.filter(t=>!t._detailed&&!t._failed);
+  const done=sel.filter(t=>t._detailed).length;
+  const left=quotaLeft();
+  const mult=$('fIssues').checked?2:1;
+  const cost=todo.length*mult;
+  const feasible=Math.min(todo.length,Math.floor(left/mult));
+  box.className='scopebox '+(cost<=left?'ok':'warn');
+  box.innerHTML='<b>'+sel.length.toLocaleString('fr-FR')+'</b> pièce(s) correspondent · <b>'+done.toLocaleString('fr-FR')+'</b> déjà enrichies · '+
+    '<b style="color:var(--gold-soft)">'+todo.length.toLocaleString('fr-FR')+'</b> à enrichir'+
+    (mult>1?' × 2 (tirage inclus)':'')+' = <b>'+cost.toLocaleString('fr-FR')+'</b> requête(s).'+
+    (cost>left?'<br>⚠ Quota restant : '+left+'. Environ '+feasible+' pièces ce mois-ci, le reste au prochain.':
+     todo.length?'<br>✓ Tient dans le quota restant ('+left+').':'<br>✓ Rien à faire, tout est déjà enrichi.');
+  $('enrich').disabled=todo.length===0;
+}
+['fTitle','fIssuer','fYearMin','fYearMax'].forEach(id=>$(id).addEventListener('input',updateScope));
+$('fExclCartes').addEventListener('change',updateScope);
+$('fIssues').addEventListener('change',updateScope);
+
+/* --- diagnostic : inspecte une pièce et montre le mapping obtenu --- */
+$('runDiag').addEventListener('click',async()=>{
+  const id=parseInt($('diagId').value,10);
+  if(!id){alert('Indiquez un ID Numista (ex. 2161).');return;}
+  const box=$('diagLog');box.classList.add('on');box.innerHTML='';
+  const say=(t,c)=>{const d=document.createElement('div');d.className=c||'l-ok';d.style.whiteSpace='pre-wrap';d.textContent=t;box.appendChild(d);};
+  const btn=$('runDiag');btn.disabled=true;btn.textContent='…';
+  try{
+    const d=await apiGet('/types/'+id,{lang:$('lang').value});
+    say('CHAMPS DU TYPE : '+Object.keys(d).join(', '),'l-warn');
+    if(Array.isArray(d.mints))say('mints → '+JSON.stringify(d.mints));
+    let issues=null;
+    try{
+      const is=await apiGet('/types/'+id+'/issues',{lang:$('lang').value});
+      issues=is.issues||is;
+      say('CHAMPS D\'UNE ÉMISSION : '+(Array.isArray(issues)&&issues[0]?Object.keys(issues[0]).join(', '):'(aucune)'),'l-warn');
+      if(Array.isArray(issues)&&issues[0])say('1re émission → '+JSON.stringify(issues[0]));
+    }catch(e){say('issues → '+e.message,'l-err');}
+    const mapped=toMedaillier({...d,_issues:Array.isArray(issues)?issues:[]});
+    say('—— RÉSULTAT DE L\'EXPORT ——','l-warn');
+    ['nom','pays','annee','atelier','valeurFaciale','monnaie','categorie','metal','titre','poids','diametre','tirage','axeFrappe','tranche','reference']
+      .forEach(k=>say(k.padEnd(15)+' : '+(mapped[k]===''?'(vide)':mapped[k]),mapped[k]===''?'l-err':'l-ok'));
+  }catch(e){say('Échec : '+e.message,'l-err');}
+  btn.disabled=false;btn.textContent='Inspecter';
+});
+
+async function runEnrich(retry){
+  if(quotaLeft()<=0){alert('Quota mensuel épuisé.');return;}
+  const all=await DB.getAll('types');
+  let todo;
+  if(retry){todo=all.filter(t=>t._failed);}
+  else{
+    const sel=enrichFilter(all);
+    if(sel===null){alert('Renseignez au moins un filtre avant d\'enrichir.');return;}
+    todo=sel.filter(t=>!t._detailed&&!t._failed);
+  }
+  if(!todo.length){alert('Rien à enrichir avec ces critères.');return;}
+  stopFlag=false;
+  $('enrich').style.display='none';$('retryFailed').style.display='none';$('stopEnrich').style.display='';$('stopEnrich').disabled=false;
+  $('enLog').classList.add('on');$('enLog').innerHTML='';
+  enLog(todo.length+' pièce(s) à traiter.','l-warn');
+  const lang=$('lang').value;
+  const withIssues=$('fIssues').checked;
+  if(withIssues)enLog('Tirage & atelier activés : coût doublé.','l-warn');
+  let ok=0,err=0;const t0=Date.now();
+  $('enOk').textContent='0';$('enErr').textContent='0';
+  for(let i=0;i<todo.length;i++){
+    if(stopFlag){enLog('Arrêt — progression conservée.','l-warn');break;}
+    if(quotaLeft()<=0){enLog('Quota atteint — reprise le mois prochain sur '+(todo.length-i)+' pièces.','l-warn');break;}
+    const t=todo[i];
+    try{const d=await apiGet('/types/'+t.id,{lang});
+      const keep={};if(t._medaillier)keep._medaillier=t._medaillier;if(t._issuerCode)keep._issuerCode=t._issuerCode;if(t._source)keep._source=t._source;
+      let extra={};
+      if(withIssues){
+        try{const is=await apiGet('/types/'+t.id+'/issues',{lang});extra._issues=(is.issues||is||[]).slice(0,60);}
+        catch(e2){if(e2.message==='QUOTA_EPUISE'){await DB.put('types',{...t,...d,...keep,_detailed:true,_failed:false});ok++;enLog('Quota atteint pendant les tirages.','l-warn');break;}
+          enLog('#'+t.id+' tirages → '+e2.message,'l-warn');}
+      }
+      await DB.put('types',{...t,...d,...extra,...keep,_detailed:true,_failed:false});ok++;enLog('#'+t.id+'  '+(d.title||t.title||''),'l-ok');}
+    catch(e){
+      if(e.message==='QUOTA_EPUISE')break;
+      if(e.message==='RATE_LIMIT'){enLog('Ralentissement — pause 5 s','l-warn');await sleep(5000);i--;continue;}
+      err++;await DB.put('types',{...t,_failed:true,_failReason:e.message});enLog('#'+t.id+' → '+e.message,'l-err');
+    }
+    $('enOk').textContent=ok;$('enErr').textContent=err;
+    $('enRemain').textContent=(todo.length-i-1).toLocaleString('fr-FR');
+    $('enFill').style.width=Math.round((i+1)/todo.length*100)+'%';
+    const el=(Date.now()-t0)/1000,rem=Math.round(el/(i+1)*(todo.length-i-1));
+    if(i>3&&i<todo.length-1){const m=Math.floor(rem/60);$('enEta').textContent='reste ~'+(m?m+' min':rem+' s');}
+    await sleep(320);
+  }
+  $('enrich').style.display='';$('retryFailed').style.display='';$('stopEnrich').style.display='none';$('enEta').textContent='';
+  await refreshCacheStats();await updateScope();
+}
+$('enrich').addEventListener('click',()=>runEnrich(false));
+$('retryFailed').addEventListener('click',()=>runEnrich(true));
+
+/* ---------- ÉTAPE 5 : export ---------- */
+function dl(content,name,type){const blob=new Blob([content],{type:type+';charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);}
+$('exportJson').addEventListener('click',async()=>{
+  const all=await DB.getAll('types');
+  dl(JSON.stringify({source:'Numista API v3',exported_at:new Date().toISOString(),count:all.length,indexed_registry:loadIndexed(),types:all},null,2),'numista_export_'+monthKey()+'.json','application/json');
+});
+$('exportCsv').addEventListener('click',async()=>{
+  const all=await DB.getAll('types');
+  const esc=v=>{if(v==null)return'';v=String(v).replace(/"/g,'""');return /[",;\n]/.test(v)?'"'+v+'"':v;};
+  const cols=['id','title','category','issuer_name','issuer_code','min_year','max_year','composition','weight','size','km','valeurFaciale','cle','lienNumista','detailed'];
+  const lines=[cols.join(';')];
+  all.forEach(t=>{const m=t._medaillier||{};lines.push([t.id,esc(t.title),esc(t.category),esc(t.issuer&&t.issuer.name),esc((t.issuer&&t.issuer.code)||t._issuerCode),t.min_year||'',t.max_year||'',esc(t.composition&&(t.composition.text||t.composition)),t.weight||'',t.size||'',esc(m.numeroKM),esc(m.valeurFaciale),esc(m.cle),esc(m.lienNumista),t._detailed?'oui':'non'].join(';'));});
+  dl('\ufeff'+lines.join('\n'),'numista_export_'+monthKey()+'.csv','text/csv');
+});
+/* ---------- mapping vers Le Médaillier ---------- */
+/* Analyse la composition Numista → métal normalisé + titre (millièmes).
+   Corrige le défaut « Or » du formulaire, qui n'est pas une donnée de l'API. */
+const METAUX=[
+  [/bimétal|bimetal|bi-métal/i,'Bimétallique'],
+  [/maillechort|argentan/i,'Maillechort'],
+  [/cupronickel|cupro-nickel|copper-nickel|cuivre[- ]nickel/i,'Cuivre-nickel'],
+  [/laiton|brass|nickel[- ]?brass/i,'Laiton'],
+  [/bronze/i,'Bronze'],
+  [/\bor\b|gold|\bau\b/i,'Or'],
+  [/argent|silver|\bag\b/i,'Argent'],
+  [/platine|platinum/i,'Platine'],
+  [/palladium/i,'Palladium'],
+  [/acier|steel/i,'Acier'],
+  [/aluminium|aluminum/i,'Aluminium'],
+  [/\bzinc\b/i,'Zinc'],
+  [/\bnickel\b/i,'Nickel'],
+  [/cuivre|copper/i,'Cuivre'],
+  [/étain|tin\b/i,'Étain'],
+  [/plomb|lead\b/i,'Plomb'],
+  [/fer\b|iron\b/i,'Fer']
+];
+function parseComposition(txt){
+  const s=String(txt||'').trim();
+  if(!s)return {metal:'',titre:''};
+  let metal='';
+  for(const [re,label] of METAUX){if(re.test(s)){metal=label;break;}}
+  // titre : « 900 », « .900 », « 0.900 », « 900‰ », « 22 carats »
+  let titre='';
+  let m=s.match(/(?:^|[^\d])(?:0?\.)?(\d{3})\s*(?:‰|%o)?/);
+  if(m&&+m[1]>=333&&+m[1]<=999)titre=m[1];
+  const k=s.match(/(\d{1,2})\s*(?:carats?|kt?\b)/i);
+  if(!titre&&k)titre=String(Math.round(+k[1]/24*1000));
+  return {metal,titre};
+}
+const AXES={medal:'medaille',coin:'monnaie',médaille:'medaille',monnaie:'monnaie'};
+function toMedaillier(t){
+  const m=t._medaillier||{};
+  const comp=(t.composition&&(t.composition.text||t.composition))||'';
+  const {metal,titre}=parseComposition(comp);
+  const iss=Array.isArray(t._issues)?t._issues:[];
+  const tirage=iss.map(i=>i.mintage).filter(v=>typeof v==='number').reduce((a,b)=>a+b,0)||'';
+  // ateliers : présents directement dans le détail du type (t.mints), sinon déduits des émissions
+  let ateliers=[];
+  if(Array.isArray(t.mints)&&t.mints.length){ateliers=t.mints.map(x=>x&&(x.name||x.place)).filter(Boolean);}
+  if(!ateliers.length){ateliers=[...new Set(iss.map(i=>i.mint_letter||i.mintmark||(i.mint&&(i.mint.name||i.mint.place))).filter(Boolean))];}
+  const refs=Array.isArray(t.references)?t.references:[];
+  const km=m.numeroKM||(refs.find(r=>/^KM/i.test(r.catalogue&&r.catalogue.code||r.catalogue||''))||{}).number||
+           (refs[0]&&(refs[0].catalogue&&refs[0].catalogue.code||'')+' '+(refs[0].number||'')).trim()||'';
+  return {
+    cle: m.cle||('n'+t.id),
+    numistaId: t.id,
+    nom: t.title||'',
+    pays: (t.issuer&&t.issuer.name)||m.pays||'',
+    annee: t.min_year||'',
+    anneeMax: t.max_year||'',
+    atelier: ateliers.join(', '),
+    valeurFaciale: (t.value&&t.value.text)||m.valeurFaciale||'',
+    monnaie: (t.value&&t.value.currency&&t.value.currency.name)||'',
+    categorie: t.type||'',
+    nature: t.type||'',
+    metal: metal,
+    titre: titre,
+    composition: comp,
+    poids: t.weight||'',
+    diametre: t.size||'',
+    epaisseur: t.thickness||'',
+    forme: t.shape||'',
+    tirage: tirage,
+    axeFrappe: AXES[String(t.orientation||m.axeFrappe||'').toLowerCase()]||m.axeFrappe||'',
+    tranche: (t.edge&&(t.edge.description||t.edge.lettering))||'',
+    reference: km,
+    lienNumista: m.lienNumista||t.url||('https://fr.numista.com/catalogue/pieces'+t.id+'.html'),
+    imageAvers: (t.obverse&&(t.obverse.picture||t.obverse.thumbnail))||m.imageAvers||t.obverse_thumbnail||'',
+    imageRevers: (t.reverse&&(t.reverse.picture||t.reverse.thumbnail))||m.imageRevers||t.reverse_thumbnail||'',
+    notes: ''
+  };
+}
+$('exportMed').addEventListener('click',async()=>{
+  const all=await DB.getAll('types');
+  const src=$('medOnlyDetailed').checked?all.filter(t=>t._detailed):all;
+  if(!src.length){alert('Aucune pièce enrichie. Lancez l\'étape 4, ou décochez l\'option.');return;}
+  const pieces=src.map(toMedaillier);
+  const sansMetal=pieces.filter(p=>!p.metal).length;
+  dl(JSON.stringify({description:'Export Extracteur Numista → Le Médaillier',exported_at:new Date().toISOString(),count:pieces.length,pieces},null,1),
+     'medaillier_import_'+monthKey()+'.json','application/json');
+  if(sansMetal)alert(pieces.length+' pièce(s) exportées.\n'+sansMetal+' sans métal identifiable (composition absente ou inhabituelle) — à compléter à la main.');
+});
+$('wipe').addEventListener('click',async()=>{
+  if(!confirm('Vider tout le cache local (index + enrichissements) ? Le quota déjà consommé n\'est pas restauré, et le registre des émetteurs indexés est effacé.'))return;
+  await DB.clear('types');localStorage.removeItem(LS_INDEXED);
+  await refreshCacheStats();renderTree();alert('Cache vidé.');
+});
+
+init();
+})();
+</script>
+</body>
+</html>

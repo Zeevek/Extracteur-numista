@@ -153,7 +153,8 @@ L'export ne consomme aucune requête.
 | Axe de frappe | `orientation` | `medal` → médaille, `coin` → monnaie |
 | Tranche | `edge.description` | détail requis |
 | Référence KM# | `references` | détail requis |
-| Tirage, Atelier | `issues[].mintage`, `mint_letter` | option « tirage & atelier » |
+| Atelier | `mints[].name` | inclus dans le détail, sans surcoût |
+| Tirage | `issues[].mintage` | option « tirage » (+1 requête/pièce) |
 | Grade, emplacement, prix, cote | — | données personnelles, hors catalogue |
 
 L'analyse de composition reconnaît les formes courantes (`Or (.900)`,
