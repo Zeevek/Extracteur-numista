@@ -465,11 +465,27 @@ async function apiGet(path,params){
   if(params)Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!=='')url.searchParams.set(k,v);});
   let res;try{res=await fetch(url.toString(),{headers:{'Numista-API-Key':apiKey()}});}
   catch(e){throw new Error('RESEAU: '+e.message+' (probable CORS en file://)');}
-  bumpQuota();
   if(res.status===401||res.status===403)throw new Error('CLE_INVALIDE ('+res.status+')');
   if(res.status===429)throw new Error('RATE_LIMIT');
   if(!res.ok)throw new Error('HTTP '+res.status);
+  bumpQuota();
   return res.json();
+}
+const MAX_RATE_RETRIES=6;
+/* comme apiGet, mais absorbe les RATE_LIMIT avec un backoff exponentiel (5s,10s,20s,...) borné à MAX_RATE_RETRIES tentatives */
+async function apiGetRetry(path,params,onWait){
+  let retries=0;
+  while(true){
+    try{return await apiGet(path,params);}
+    catch(e){
+      if(e.message!=='RATE_LIMIT')throw e;
+      retries++;
+      if(retries>MAX_RATE_RETRIES)throw new Error('RATE_LIMIT_MAX');
+      const delay=Math.min(5000*Math.pow(2,retries-1),60000);
+      if(onWait)onWait(delay,retries);
+      await sleep(delay);
+    }
+  }
 }
 
 /* ---------- taxonomie régionale (heuristique par nom) ---------- */
@@ -817,10 +833,10 @@ async function runSearch(params,label,yearMin){
       if(stopFlag){idxLog('Arrêt demandé.','l-warn');break outer;}
       if(quotaLeft()<=0){idxLog('Quota atteint — reprise le mois prochain.','l-warn');break outer;}
       let r;
-      try{r=await apiGet('/types',{...params,category:cat,object_type:objTypeParam(),page,count:50,lang});req++;}
+      try{r=await apiGetRetry('/types',{...params,category:cat,object_type:objTypeParam(),page,count:50,lang},(delay,n)=>idxLog('Ralentissement — pause '+(delay/1000)+' s (tentative '+n+'/'+MAX_RATE_RETRIES+')','l-warn'));req++;}
       catch(e){
         if(e.message==='QUOTA_EPUISE')break outer;
-        if(e.message==='RATE_LIMIT'){idxLog('Ralentissement — pause 5 s','l-warn');await sleep(5000);continue;}
+        if(e.message==='RATE_LIMIT_MAX'){idxLog(cat+' p'+page+' → rate-limit persistant, abandon','l-err');break;}
         idxLog(cat+' p'+page+' → '+e.message,'l-err');break;
       }
       const arr=r.types||[];
@@ -884,10 +900,10 @@ $('buildIndex').addEventListener('click',async()=>{
         if(stopFlag){idxLog('Arrêt demandé.','l-warn');complete=false;break outer;}
         if(quotaLeft()<=0){idxLog('Quota atteint — reprise le mois prochain.','l-warn');complete=false;break outer;}
         let r;
-        try{r=await apiGet('/types',{issuer:code,category:cat,object_type:objTypeParam(),page,count:50,lang});req++;}
+        try{r=await apiGetRetry('/types',{issuer:code,category:cat,object_type:objTypeParam(),page,count:50,lang},(delay,n)=>idxLog('Ralentissement — pause '+(delay/1000)+' s (tentative '+n+'/'+MAX_RATE_RETRIES+')','l-warn'));req++;}
         catch(e){
           if(e.message==='QUOTA_EPUISE'){complete=false;break outer;}
-          if(e.message==='RATE_LIMIT'){idxLog('Ralentissement — pause 5 s','l-warn');await sleep(5000);continue;}
+          if(e.message==='RATE_LIMIT_MAX'){idxLog(code+'/'+cat+' p'+page+' → rate-limit persistant, abandon','l-err');complete=false;break;}
           idxLog(code+'/'+cat+' p'+page+' → '+e.message,'l-err');complete=false;break;
         }
         const arr=r.types||[];
@@ -974,7 +990,9 @@ async function updateScope(){
      todo.length?'<br>✓ Tient dans le quota restant ('+left+').':'<br>✓ Rien à faire, tout est déjà enrichi.');
   $('enrich').disabled=todo.length===0;
 }
-['fTitle','fIssuer','fYearMin','fYearMax'].forEach(id=>$(id).addEventListener('input',updateScope));
+function debounce(fn,ms){let h;return(...a)=>{clearTimeout(h);h=setTimeout(()=>fn(...a),ms);};}
+const updateScopeDebounced=debounce(updateScope,250);
+['fTitle','fIssuer','fYearMin','fYearMax'].forEach(id=>$(id).addEventListener('input',updateScopeDebounced));
 $('fExclCartes').addEventListener('change',updateScope);
 $('fIssues').addEventListener('change',updateScope);
 
@@ -1028,18 +1046,17 @@ async function runEnrich(retry){
     if(stopFlag){enLog('Arrêt — progression conservée.','l-warn');break;}
     if(quotaLeft()<=0){enLog('Quota atteint — reprise le mois prochain sur '+(todo.length-i)+' pièces.','l-warn');break;}
     const t=todo[i];
-    try{const d=await apiGet('/types/'+t.id,{lang});
+    try{const d=await apiGetRetry('/types/'+t.id,{lang},(delay,n)=>enLog('Ralentissement — pause '+(delay/1000)+' s (tentative '+n+'/'+MAX_RATE_RETRIES+')','l-warn'));
       const keep={};if(t._medaillier)keep._medaillier=t._medaillier;if(t._issuerCode)keep._issuerCode=t._issuerCode;if(t._source)keep._source=t._source;
       let extra={};
       if(withIssues){
-        try{const is=await apiGet('/types/'+t.id+'/issues',{lang});extra._issues=(is.issues||is||[]).slice(0,60);}
+        try{const is=await apiGetRetry('/types/'+t.id+'/issues',{lang},(delay,n)=>enLog('Ralentissement (tirages) — pause '+(delay/1000)+' s (tentative '+n+'/'+MAX_RATE_RETRIES+')','l-warn'));extra._issues=(is.issues||is||[]).slice(0,60);}
         catch(e2){if(e2.message==='QUOTA_EPUISE'){await DB.put('types',{...t,...d,...keep,_detailed:true,_failed:false});ok++;enLog('Quota atteint pendant les tirages.','l-warn');break;}
           enLog('#'+t.id+' tirages → '+e2.message,'l-warn');}
       }
       await DB.put('types',{...t,...d,...extra,...keep,_detailed:true,_failed:false});ok++;enLog('#'+t.id+'  '+(d.title||t.title||''),'l-ok');}
     catch(e){
       if(e.message==='QUOTA_EPUISE')break;
-      if(e.message==='RATE_LIMIT'){enLog('Ralentissement — pause 5 s','l-warn');await sleep(5000);i--;continue;}
       err++;await DB.put('types',{...t,_failed:true,_failReason:e.message});enLog('#'+t.id+' → '+e.message,'l-err');
     }
     $('enOk').textContent=ok;$('enErr').textContent=err;
